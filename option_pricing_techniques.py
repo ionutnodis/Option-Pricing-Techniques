@@ -171,6 +171,90 @@ def monte_carlo_call_price(S0, K, r, T, sigma, simulations=10000):
     payoff = np.maximum(ST - K, 0)
     return np.exp(-r * T) * np.mean(payoff)
 
+# --- Option Pricing using numerical integration ----# 
+#Function to compute put options via numerical integration 
+#We assume that the stock price follows a lognoral distribution 
+
+#Function to Compute the lognormal density 
+def logNormal(S, r, q, sig, S0, T): 
+    """
+    Computes the lognormal density function for a given stock price.
+
+    This function calculates the probability density of the stock price at time T
+    under the assumption that it follows a lognormal distribution.
+
+    Parameters:
+    - S: Stock price at time T
+    - r: Risk-free interest rate
+    - q: Dividend yield
+    - sig: Volatility of the underlying asset
+    - S0: Initial stock price
+    - T: Time to maturity (in years)
+
+    Returns:
+    - The value of the lognormal density function for the given parameters
+    """ 
+    f = np.exp(-((np.log(S/S0) - (r-q-0.5*sig**2)*T)**2)/(2*sig**2*T))/(S*np.sqrt(2*np.pi*sig**2*T))
+    return f
+
+#Parameters for the Put 
+S0 = 100
+K = 90
+r = 0.05
+q = 0.02
+sig = 0.25
+T = 1.0
+
+#Function to compute the numerical integration for the put 
+
+def numerical_integral_put(r, q, S0, K, sig, T, N): 
+    
+    #temporary values
+    eta = 0.0 #spacing of the integration grid
+    priceP = 0.0 #price of the put option
+    
+    #discount factor 
+    df = np.exp(-r*T)
+    #step size
+    eta = 1. *K/N
+    #vector of stock prices
+    S = np.arange(1, N+1)*eta
+    #vector of weights
+    w = np.ones(N)*eta
+    w[0] = eta / 2
+    #lognormal density
+    logN = np.zeros(N)
+    logN = logNormal(S, r, q, sig, S0, T)
+    #numerical integral 
+    sumP = np.sum((K-S)*logN*w)
+    #price of the put option
+    priceP = df*sumP
+    return eta, priceP
+
+#Now we can use the previous function to price the put for different values of N = 2^n , n=1,2,...,15
+
+#Define a vector with all values of N 
+n_min = 1
+n_max = 15
+n_vec = np.arange(n_min, n_max+1, dtype=int)
+
+#Compute numerical integration for all values of N
+start = time.time()
+
+#Vector to store the prices
+eta_vec = np.zeros(n_max)
+put_vec = np.zeros(n_max)
+for i in range(n_max):
+    N = 2**n_vec[i]
+    eta_vec[i], put_vec[i] = numerical_integral_put(r, q, S0, K, sig, T, N)
+    
+end = time.time()
+print("Time for numerical integration:", end - start)
+
+#Print a table with the results 
+print('N\teta\tP_0')
+for i in range(n_max):
+    print('2^%i\t%.3f\t%.4f' % (n_vec[i], eta_vec[i], put_vec[i]))
 
 
 # --- Parameters and pricing across strikes ---
