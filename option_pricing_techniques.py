@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import norm
+from memory_profiler import memory_usage
 import time
 
 
@@ -272,9 +273,6 @@ put_vec = np.array([numerical_integral_put(r, q, S0, K, sig, T, N=2**n)[1] for n
 # Save the results into a DataFrame
 integration_results = results_to_dataframe(n_vec, eta_vec, put_vec)
 
-# Print the DataFrame
-print(integration_results)
-
 end = time.time()
 print("Time for numerical integration:", end - start)
 
@@ -363,3 +361,103 @@ average_times = {
 
 fastest_method = min(average_times, key=average_times.get)
 print("Fastest method on average:", fastest_method)
+
+
+# --- Performance Evaluation Section --- #
+# --- Accuracy vs Runtime ---
+# We consider BSM to be the baseline and compare it with the other techniques
+
+def compute_accuracy_vs_runtime(S0, K_values, r, T, sigma, bs_fn, fft_fn, binomial_fn, mc_fn, ni_fn):
+    """
+    Computes the accuracy and runtime of different option pricing methods.
+    
+    """
+    
+    # Initialize list to store results
+    results = []
+
+    for K in K_values:
+        # Black-Scholes
+        bs_start = time.time()
+        bs_price = bs_fn(S0, K, r, T, sigma)
+        bs_time = time.time() - bs_start
+
+        # FFT
+        fft_start = time.time()
+        fft_price = fft_fn(S0, K, r, T, sigma)
+        fft_time = time.time() - fft_start
+
+        # Binomial
+        binomial_start = time.time()
+        binomial_price = binomial_fn(S0, K, r, T, sigma)
+        binomial_time = time.time() - binomial_start
+
+        # Monte Carlo
+        mc_start = time.time()
+        mc_price = mc_fn(S0, K, r, T, sigma)
+        mc_time = time.time() - mc_start
+
+        # Numerical Integration
+        q = 0.0
+        ni_start = time.time()
+        _, put_price = ni_fn(r, q, S0, K, sigma, T, 2**14)
+        ni_price = put_price + S0 * np.exp(-q * T) - K * np.exp(-r * T)
+        ni_time = time.time() - ni_start
+
+        results.append({
+            'K': K,
+            'BS Price': bs_price, 'FFT Price': fft_price, 'Binomial Price': binomial_price,
+            'MC Price': mc_price, 'NI Price': ni_price,
+            'BS Time': bs_time, 'FFT Time': fft_time, 'Binomial Time': binomial_time,
+            'MC Time': mc_time, 'NI Time': ni_time,
+            'FFT_Error': abs(fft_price - bs_price),
+            'Binomial_Error': abs(binomial_price - bs_price),
+            'MC_Error': abs(mc_price - bs_price),
+            'NI_Error': abs(ni_price - bs_price),
+        })
+
+    return pd.DataFrame(results)
+
+
+# --- Plotting Function ---
+def plot_accuracy_vs_runtime(df):
+    """
+    Plots absolute error vs. runtime for all methods compared to Black-Scholes.
+    """
+    plt.figure(figsize=(12, 6))
+
+    plt.scatter(df['FFT Time'], df['FFT_Error'], label='FFT', marker='o')
+    plt.scatter(df['Binomial Time'], df['Binomial_Error'], label='Binomial', marker='s')
+    plt.scatter(df['MC Time'], df['MC_Error'], label='Monte Carlo', marker='^')
+    plt.scatter(df['NI Time'], df['NI_Error'], label='Numerical Integration', marker='x')
+
+    plt.xlabel("Runtime (seconds)")
+    plt.ylabel("Absolute Error vs Black-Scholes")
+    plt.title("Accuracy vs Runtime of Option Pricing Methods")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.legend()
+    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+    plt.tight_layout()
+    plt.show()
+
+
+# --- Example Usage ---
+# --- Run Accuracy vs Runtime ---
+if __name__ == "__main__":
+    K_values = np.linspace(60, 140, 40)
+
+    df_results = compute_accuracy_vs_runtime(
+        S0=100,
+        K_values=K_values,
+        r=0.05,
+        T=1.0,
+        sigma=0.2,
+        bs_fn=bs_call_price,
+        fft_fn=fft_option_price,
+        binomial_fn=binomial_call_price,
+        mc_fn=monte_carlo_call_price,
+        ni_fn=numerical_integral_put
+    )
+
+    plot_accuracy_vs_runtime(df_results)
