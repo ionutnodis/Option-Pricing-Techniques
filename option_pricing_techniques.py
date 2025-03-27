@@ -6,10 +6,10 @@
 
 #--- Import libraries ---#
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 import time
-
 
 
 #--- Comparison of Option Pricing Techniques ---#
@@ -171,6 +171,7 @@ def monte_carlo_call_price(S0, K, r, T, sigma, simulations=10000):
     payoff = np.maximum(ST - K, 0)
     return np.exp(-r * T) * np.mean(payoff)
 
+
 # --- Option Pricing using numerical integration ----# 
 #Function to compute put options via numerical integration 
 #We assume that the stock price follows a lognoral distribution 
@@ -241,36 +242,62 @@ n_vec = np.arange(n_min, n_max+1, dtype=int)
 #Compute numerical integration for all values of N
 start = time.time()
 
-#Vector to store the prices
-eta_vec = np.zeros(n_max)
-put_vec = np.zeros(n_max)
-for i in range(n_max):
-    N = 2**n_vec[i]
-    eta_vec[i], put_vec[i] = numerical_integral_put(r, q, S0, K, sig, T, N)
-    
+#Storing the results in a Pandas DataFrame
+
+def results_to_dataframe(n_vec, eta_vec, put_vec) -> pd.DataFrame:
+    """
+    Saves the results of numerical integration into a pandas DataFrame.
+
+    Parameters:
+    - n_vec: Array of N values (powers of 2)
+    - eta_vec: Array of eta values (step sizes)
+    - put_vec: Array of put option prices
+
+    Returns:
+    - A pandas DataFrame containing the results
+    """
+    results_df = pd.DataFrame({
+        'N': [f'2^{n}' for n in n_vec],
+        'eta': eta_vec,
+        'P_0': put_vec
+    })
+    return results_df
+
+# Calculate eta_vec based on n_vec
+eta_vec = K / (2 ** n_vec)
+
+# Compute put_vec using numerical integration for all values of N
+put_vec = np.array([numerical_integral_put(r, q, S0, K, sig, T, N=2**n)[1] for n in n_vec])
+
+# Save the results into a DataFrame
+integration_results = results_to_dataframe(n_vec, eta_vec, put_vec)
+
+# Print the DataFrame
+print(integration_results)
+
 end = time.time()
 print("Time for numerical integration:", end - start)
 
-#Print a table with the results 
-print('N\teta\tP_0')
-for i in range(n_max):
-    print('2^%i\t%.3f\t%.4f' % (n_vec[i], eta_vec[i], put_vec[i]))
 
 
-# --- Parameters and pricing across strikes ---
+# --- Comparing all Option Pricing Techniques ---#
 
-S0 = 100
+#Parameters and pricing across strikes 
+
+S0 = 100 
 r = 0.05
 T = 1.0
 sigma = 0.2
+q = 0.0 #no dividends
 
 #Array of strike prices
 K_values = np.linspace(60, 140, 50)
 
 
 #Dictionary to store the prices and times
-fft_prices, bs_prices, binomial_prices, mc_prices = [], [], [], []
-fft_times, bs_times, binomial_times, mc_times = [], [], [], []
+fft_prices, bs_prices, binomial_prices, mc_prices, ni_prices = [], [], [], [], []
+fft_times, bs_times, binomial_times, mc_times, ni_times = [], [], [], [], []
+
 
 #Loop over to compute the prices and times
 for K in K_values:
@@ -289,6 +316,13 @@ for K in K_values:
     start = time.time()
     mc_prices.append(monte_carlo_call_price(S0, K, r, T, sigma))
     mc_times.append(time.time() - start)
+    
+    # Put-Call parity and pricing using numerical integration
+    start = time.time()
+    _, put_price = numerical_integral_put(r, q, S0, K, sigma, T, N=2**15)
+    call_price = put_price + S0 * np.exp(-q * T) - K * np.exp(-r * T)
+    ni_prices.append(call_price)
+    ni_times.append(time.time() - start)
 
 # --- Plot Prices ---
 plt.figure(figsize=(12, 6))
@@ -296,19 +330,21 @@ plt.plot(K_values, bs_prices, label="Black-Scholes", linestyle="--")
 plt.plot(K_values, fft_prices, label="FFT")
 plt.plot(K_values, binomial_prices, label="Binomial Tree", linestyle=":")
 plt.plot(K_values, mc_prices, label="Monte Carlo", linestyle="-.")
-plt.title("European Call Option Pricing: FFT vs BS vs Binomial vs Monte Carlo")
+plt.plot(K_values, ni_prices, label="Numerical Integration", linestyle="-")
+plt.title("European Call Option Pricing: All Methods")
 plt.xlabel("Strike Price (K)")
 plt.ylabel("Option Price")
 plt.legend()
 plt.grid(True)
 plt.show()
 
-# --- Plot Times ---
+# --- Plot Computation Times ---
 plt.figure(figsize=(12, 6))
 plt.plot(K_values, bs_times, label="BS Time")
 plt.plot(K_values, fft_times, label="FFT Time")
 plt.plot(K_values, binomial_times, label="Binomial Time")
 plt.plot(K_values, mc_times, label="MC Time")
+plt.plot(K_values, ni_times, label="NI Time")
 plt.title("Computation Time per Method")
 plt.xlabel("Strike Price (K)")
 plt.ylabel("Time (seconds)")
@@ -321,7 +357,8 @@ average_times = {
     "Black-Scholes": np.mean(bs_times),
     "FFT": np.mean(fft_times),
     "Binomial": np.mean(binomial_times),
-    "Monte Carlo": np.mean(mc_times)
+    "Monte Carlo": np.mean(mc_times),
+    "Numerical Integration": np.mean(ni_times)
 }
 
 fastest_method = min(average_times, key=average_times.get)
